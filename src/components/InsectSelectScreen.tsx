@@ -3,10 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { useCreateRandomSession, useIsTogether, useLeaveSession } from "react-together";
 import { Trophy } from "lucide-react";
-import beeGif from "../../animals/bee.gif";
-import butterflyGif from "../../animals/butterfly.gif";
-import bluemouchGif from "../../animals/bluemouch.gif";
-import mouchGif from "../../animals/mouch.gif";
+import beeGif from "/animals/bee.gif";
+import butterflyGif from "/animals/butterfly.gif";
+import bluemouchGif from "/animals/bluemouch.gif";
+import mouchGif from "/animals/mouch.gif";
 
 export interface BirdType {
   name: string;
