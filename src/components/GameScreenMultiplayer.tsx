@@ -949,7 +949,6 @@ const GameScreenMultiplayer = ({ onBackToMenu, isHost, roomId }: GameScreenMulti
                 {users.length < 2 ? (
                   <div className="text-center">
                     <div className="text-white text-2xl mb-4">Waiting for others to join...</div>
-                    <div className="text-white text-lg">Players: {users.length}/2</div>
                   </div>
                 ) : (
                   <>
