@@ -66,11 +66,23 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
       setLoading(true);
 
       try {
-        const [{ Hands, HAND_CONNECTIONS }, drawingUtils, cameraUtils] = await Promise.all([
+        const [handsModule, drawingModule, cameraModule] = await Promise.all([
           import("@mediapipe/hands"),
           import("@mediapipe/drawing_utils"),
           import("@mediapipe/camera_utils"),
         ]);
+
+        const HandsCtor: any = (handsModule as any).Hands || (handsModule as any).default?.Hands;
+        const HAND_CONNECTIONS: any = (handsModule as any).HAND_CONNECTIONS || (handsModule as any).default?.HAND_CONNECTIONS;
+        const drawingUtils: any = {
+          drawConnectors: (drawingModule as any).drawConnectors || (drawingModule as any).default?.drawConnectors,
+          drawLandmarks: (drawingModule as any).drawLandmarks || (drawingModule as any).default?.drawLandmarks,
+        };
+        const CameraCtor: any = (cameraModule as any).Camera || (cameraModule as any).default?.Camera;
+
+        if (typeof HandsCtor !== 'function' || typeof CameraCtor !== 'function') {
+          throw new Error('Failed to load MediaPipe constructors (Hands/Camera).');
+        }
 
         if (isCancelled) return;
 
@@ -79,7 +91,7 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
         const ctx = canvas.getContext("2d")!;
 
         // Initialize Hands
-        const hands = new Hands({
+        const hands = new HandsCtor({
           locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
         });
         hands.setOptions({
@@ -183,7 +195,7 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
         });
 
         // Camera utility to feed frames to Hands
-        const camera = new cameraUtils.Camera(video, {
+        const camera = new CameraCtor(video, {
           onFrame: async () => {
             if (!handsRef.current) return;
             await handsRef.current.send({ image: video });
