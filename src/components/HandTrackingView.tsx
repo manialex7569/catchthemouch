@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
+// Define the global variables that will be available from the script tags
+declare const Camera: any;
+declare const Hands: any;
+declare const HAND_CONNECTIONS: any;
+declare const drawConnectors: any;
+declare const drawLandmarks: any;
+
+
 export interface HandTrackingViewProps {
   enabled: boolean;
   onEnter?: () => void;
@@ -41,46 +49,23 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
   useEffect(() => {
     let isCancelled = false;
 
-    const start = async () => {
+    const start = () => {
       if (!enabled || !videoRef.current) return;
       setError(null);
       setLoading(true);
 
       try {
-        // --- DIAGNOSTIC LOGS & ROBUST ACCESS ---
-        console.log("Attempting to import MediaPipe modules...");
-        const [handsModule, drawingUtilsModule, cameraUtilsModule] = await Promise.all([
-          import("@mediapipe/hands"),
-          import("@mediapipe/drawing_utils"),
-          import("@mediapipe/camera_utils"),
-        ]);
-
-        // Log the structure of the imported modules
-        console.log("DIAGNOSTIC: handsModule:", handsModule);
-        console.log("DIAGNOSTIC: drawingUtilsModule:", drawingUtilsModule);
-        console.log("DIAGNOSTIC: cameraUtilsModule:", cameraUtilsModule);
-
-        if (isCancelled) return;
-
-        const Hands = handsModule.Hands || handsModule.default?.Hands;
-        const HAND_CONNECTIONS = handsModule.HAND_CONNECTIONS || handsModule.default?.HAND_CONNECTIONS;
-        const drawingUtils = drawingUtilsModule.default || drawingUtilsModule;
-        const Camera = cameraUtilsModule.Camera || cameraUtilsModule.default?.Camera;
-
-        // Log what was resolved
-        console.log("DIAGNOSTIC: Resolved Objects:", { Hands, Camera, drawingUtils, HAND_CONNECTIONS });
-
-        if (!Hands || !Camera || !drawingUtils || !HAND_CONNECTIONS) {
-          throw new Error("Failed to load MediaPipe modules. Constructors or utilities not found.");
+        // Check if the scripts have loaded and attached themselves to the window
+        if (typeof Hands === 'undefined' || typeof Camera === 'undefined' || typeof drawConnectors === 'undefined') {
+          throw new Error("MediaPipe scripts not loaded from CDN. Check the script tags in index.html and your network connection.");
         }
-        
+
         const video = videoRef.current;
         const canvas = canvasRef.current!;
         const ctx = canvas.getContext("2d")!;
 
-        // --- FIX: Added specific version to CDN path ---
         const hands = new Hands({
-          locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
+          locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`,
         });
         
         hands.setOptions({
@@ -118,11 +103,11 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
             for (const landmarks of results.multiHandLandmarks) {
               const mirrored = landmarks.map((p: any) => ({ ...p, x: 1 - p.x }));
               const pinched = isPinching(landmarks);
-              drawingUtils.drawConnectors(ctx, mirrored, HAND_CONNECTIONS, {
+              drawConnectors(ctx, mirrored, HAND_CONNECTIONS, {
                 color: pinched ? "#f59e0b" : "#22c55e",
                 lineWidth: 3,
               });
-              drawingUtils.drawLandmarks(ctx, mirrored, {
+              drawLandmarks(ctx, mirrored, {
                 color: "#60a5fa",
                 lineWidth: 1,
                 radius: 3,
@@ -172,14 +157,15 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 
         const camera = new Camera(video, {
           onFrame: async () => {
-            if (!handsRef.current) return;
-            await handsRef.current.send({ image: video });
+            if (!isCancelled) {
+              await hands.send({ image: video });
+            }
           },
           width: 480,
           height: 360,
         });
         cameraControllerRef.current = camera;
-        await camera.start();
+        camera.start();
 
         if (!isCancelled) {
           setLoading(false);
@@ -195,20 +181,22 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
     };
 
     const stop = () => {
-      try {
-        cameraControllerRef.current?.stop?.();
-      } catch {}
+      isCancelled = true;
+      cameraControllerRef.current?.stop?.();
       cameraControllerRef.current = null;
       handsRef.current?.close?.();
       handsRef.current = null;
       onExitRef.current?.();
     };
 
-    if (enabled) start();
-    else stop();
+    // Delay start to give scripts time to load from CDN
+    const timeoutId = setTimeout(() => {
+        start();
+    }, 500);
+
 
     return () => {
-      isCancelled = true;
+      clearTimeout(timeoutId);
       stop();
     };
   }, [enabled]);
