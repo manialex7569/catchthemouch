@@ -4,21 +4,17 @@ export interface HandTrackingViewProps {
   enabled: boolean;
   onEnter?: () => void;
   onExit?: () => void;
-  // Called with normalized coordinates (0..1) of the index fingertip in selfie space
   onFingerMove?: (normX: number, normY: number) => void;
-  // Called when a pinch (thumb-index) gesture is detected (debounced)
   onPinch?: () => void;
-  // Rich data callback for calibration/mapping
   onHandData?: (data: {
     indexTip: { x: number; y: number } | null;
-    indexMCP: { x: number; y: number } | null; // landmark 5
-    wrist: { x: number; y: number } | null;    // landmark 0
-    palmCenter: { x: number; y: number } | null; // avg of wrist + MCPs
+    indexMCP: { x: number; y: number } | null;
+    wrist: { x: number; y: number } | null;
+    palmCenter: { x: number; y: number } | null;
     isPinch: boolean;
   }) => void;
 }
 
-// Lightweight camera + MediaPipe Hands visualization component.
 const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onHandData }: HandTrackingViewProps) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -26,7 +22,6 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
   const [error, setError] = useState<string | null>(null);
   const cameraControllerRef = useRef<any>(null);
   const handsRef = useRef<any>(null);
-  // Keep latest callbacks without re-running the main effect
   const onEnterRef = useRef<typeof onEnter | undefined>(onEnter);
   const onExitRef = useRef<typeof onExit | undefined>(onExit);
   const onFingerMoveRef = useRef<typeof onFingerMove | undefined>(onFingerMove);
@@ -37,23 +32,11 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 
   useEffect(() => {
     onEnterRef.current = onEnter;
-  }, [onEnter]);
-
-  useEffect(() => {
     onExitRef.current = onExit;
-  }, [onExit]);
-
-  useEffect(() => {
     onFingerMoveRef.current = onFingerMove;
-  }, [onFingerMove]);
-
-  useEffect(() => {
     onPinchRef.current = onPinch;
-  }, [onPinch]);
-
-  useEffect(() => {
     onHandDataRef.current = onHandData;
-  }, [onHandData]);
+  }, [onEnter, onExit, onFingerMove, onPinch, onHandData]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -64,36 +47,42 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
       setLoading(true);
 
       try {
-        // --- MODIFICATION START ---
-        // Import modules and then robustly access their exports
+        // --- DIAGNOSTIC LOGS & ROBUST ACCESS ---
+        console.log("Attempting to import MediaPipe modules...");
         const [handsModule, drawingUtilsModule, cameraUtilsModule] = await Promise.all([
           import("@mediapipe/hands"),
           import("@mediapipe/drawing_utils"),
           import("@mediapipe/camera_utils"),
         ]);
 
+        // Log the structure of the imported modules
+        console.log("DIAGNOSTIC: handsModule:", handsModule);
+        console.log("DIAGNOSTIC: drawingUtilsModule:", drawingUtilsModule);
+        console.log("DIAGNOSTIC: cameraUtilsModule:", cameraUtilsModule);
+
         if (isCancelled) return;
 
-        // Handle cases where the bundler wraps exports in a `default` object
         const Hands = handsModule.Hands || handsModule.default?.Hands;
         const HAND_CONNECTIONS = handsModule.HAND_CONNECTIONS || handsModule.default?.HAND_CONNECTIONS;
         const drawingUtils = drawingUtilsModule.default || drawingUtilsModule;
         const Camera = cameraUtilsModule.Camera || cameraUtilsModule.default?.Camera;
 
-        // Check if the constructors were loaded correctly
+        // Log what was resolved
+        console.log("DIAGNOSTIC: Resolved Objects:", { Hands, Camera, drawingUtils, HAND_CONNECTIONS });
+
         if (!Hands || !Camera || !drawingUtils || !HAND_CONNECTIONS) {
           throw new Error("Failed to load MediaPipe modules. Constructors or utilities not found.");
         }
-        // --- MODIFICATION END ---
-
+        
         const video = videoRef.current;
         const canvas = canvasRef.current!;
         const ctx = canvas.getContext("2d")!;
 
-        // Initialize Hands
+        // --- FIX: Added specific version to CDN path ---
         const hands = new Hands({
-          locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+          locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
         });
+        
         hands.setOptions({
           maxNumHands: 1,
           modelComplexity: 1,
@@ -181,7 +170,6 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
           }
         });
 
-        // Use the robustly loaded Camera constructor
         const camera = new Camera(video, {
           onFrame: async () => {
             if (!handsRef.current) return;
@@ -211,10 +199,8 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
         cameraControllerRef.current?.stop?.();
       } catch {}
       cameraControllerRef.current = null;
-
       handsRef.current?.close?.();
       handsRef.current = null;
-
       onExitRef.current?.();
     };
 
