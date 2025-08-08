@@ -19,8 +19,6 @@ export interface HandTrackingViewProps {
 }
 
 // Lightweight camera + MediaPipe Hands visualization component.
-// Shows a mirrored webcam preview with landmark overlay when enabled.
-// Does not emit cursor or hit events yet; strictly visualization.
 const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onHandData }: HandTrackingViewProps) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -66,15 +64,27 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
       setLoading(true);
 
       try {
-        // Use CDN ESM builds to avoid bundler/minifier issues in production
-        const [handsModule, drawingModule] = await Promise.all([
+        // --- MODIFICATION START ---
+        // Import modules and then robustly access their exports
+        const [handsModule, drawingUtilsModule, cameraUtilsModule] = await Promise.all([
           import("@mediapipe/hands"),
           import("@mediapipe/drawing_utils"),
+          import("@mediapipe/camera_utils"),
         ]);
-        const { Hands, HAND_CONNECTIONS } = handsModule as any;
-        const { drawConnectors, drawLandmarks } = drawingModule as any;
 
         if (isCancelled) return;
+
+        // Handle cases where the bundler wraps exports in a `default` object
+        const Hands = handsModule.Hands || handsModule.default?.Hands;
+        const HAND_CONNECTIONS = handsModule.HAND_CONNECTIONS || handsModule.default?.HAND_CONNECTIONS;
+        const drawingUtils = drawingUtilsModule.default || drawingUtilsModule;
+        const Camera = cameraUtilsModule.Camera || cameraUtilsModule.default?.Camera;
+
+        // Check if the constructors were loaded correctly
+        if (!Hands || !Camera || !drawingUtils || !HAND_CONNECTIONS) {
+          throw new Error("Failed to load MediaPipe modules. Constructors or utilities not found.");
+        }
+        // --- MODIFICATION END ---
 
         const video = videoRef.current;
         const canvas = canvasRef.current!;
@@ -93,7 +103,6 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
         handsRef.current = hands;
 
         const isPinching = (landmarks: any[]) => {
-          // Use distance between thumb tip (4) and index tip (8) normalized by palm width (5-17)
           const thumbTip = landmarks[4];
           const indexTip = landmarks[8];
           const indexMCP = landmarks[5];
@@ -101,53 +110,42 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
           const palmWidth = Math.hypot(indexMCP.x - pinkyMCP.x, indexMCP.y - pinkyMCP.y);
           const tipDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
           if (palmWidth === 0) return false;
-          // Threshold tuned for stability; smaller means stricter
           return tipDist < palmWidth * 0.45;
         };
 
         hands.onResults((results: any) => {
-          // Resize canvas to video size
           const w = video.videoWidth || 640;
           const h = video.videoHeight || 480;
           if (canvas.width !== w) canvas.width = w;
           if (canvas.height !== h) canvas.height = h;
 
-          // Draw the video frame first
           ctx.save();
-          // Mirror drawing to match selfie view
           ctx.clearRect(0, 0, w, h);
           ctx.scale(-1, 1);
           ctx.drawImage(results.image, -w, 0, w, h);
           ctx.restore();
 
-          // Draw landmarks
           if (results.multiHandLandmarks) {
-            // Draw all hands mirrored to match the video
             for (const landmarks of results.multiHandLandmarks) {
               const mirrored = landmarks.map((p: any) => ({ ...p, x: 1 - p.x }));
               const pinched = isPinching(landmarks);
-              drawConnectors(ctx, mirrored, HAND_CONNECTIONS, {
+              drawingUtils.drawConnectors(ctx, mirrored, HAND_CONNECTIONS, {
                 color: pinched ? "#f59e0b" : "#22c55e",
                 lineWidth: 3,
               });
-              drawLandmarks(ctx, mirrored, {
+              drawingUtils.drawLandmarks(ctx, mirrored, {
                 color: "#60a5fa",
                 lineWidth: 1,
                 radius: 3,
               });
             }
 
-            // Primary hand data (first hand)
             const primary = results.multiHandLandmarks[0];
             if (primary) {
-              // Emit fingertip position
               if (onFingerMoveRef.current) {
                 const indexTip = primary[8];
-                const mirroredX = 1 - indexTip.x;
-                const y = indexTip.y;
-                onFingerMoveRef.current(mirroredX, y);
+                onFingerMoveRef.current(1 - indexTip.x, indexTip.y);
               }
-              // Pinch event (debounced on rising edge)
               const pinched = isPinching(primary);
               if (pinched !== pinchActiveRef.current) {
                 pinchActiveRef.current = pinched;
@@ -160,7 +158,6 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
                 }
               }
 
-              // Emit rich hand data for calibration consumers
               if (onHandDataRef.current) {
                 const getPoint = (i: number) => ({ x: 1 - primary[i].x, y: primary[i].y });
                 const wrist = getPoint(0);
@@ -184,36 +181,17 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
           }
         });
 
-        // Start webcam using getUserMedia and drive Hands with rAF
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: 480, height: 360 },
-          audio: false,
-        });
-        video.srcObject = stream as any;
-        await new Promise<void>((resolve) => {
-          const onLoaded = () => {
-            video.play().then(() => resolve()).catch(() => resolve());
-          };
-          if (video.readyState >= 2) resolve();
-          else video.onloadedmetadata = onLoaded;
-        });
-
-        let rafId: number | null = null;
-        const pump = async () => {
-          if (!handsRef.current) return;
-          await handsRef.current.send({ image: video });
-          rafId = requestAnimationFrame(pump);
-        };
-        rafId = requestAnimationFrame(pump);
-
-        cameraControllerRef.current = {
-          stop: () => {
-            if (rafId !== null) cancelAnimationFrame(rafId);
-            const mediaStream = video.srcObject as MediaStream | null;
-            if (mediaStream) mediaStream.getTracks().forEach((t) => t.stop());
-            video.srcObject = null;
+        // Use the robustly loaded Camera constructor
+        const camera = new Camera(video, {
+          onFrame: async () => {
+            if (!handsRef.current) return;
+            await handsRef.current.send({ image: video });
           },
-        };
+          width: 480,
+          height: 360,
+        });
+        cameraControllerRef.current = camera;
+        await camera.start();
 
         if (!isCancelled) {
           setLoading(false);
@@ -254,11 +232,10 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
   return (
     <div className="fixed bottom-4 right-4 z-30 w-64 rounded-lg overflow-hidden shadow-lg border border-white/20 bg-black/50 backdrop-blur-sm">
       <div className="relative w-full" style={{ aspectRatio: "4 / 3" }}>
-        {/* We draw into canvas for mirrored + overlay visuals */}
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
         <video
           ref={videoRef}
-          className="absolute inset-0 w-full h-full opacity-0" // hidden; drawing on canvas
+          className="absolute inset-0 w-full h-full opacity-0"
           autoPlay
           playsInline
           muted
@@ -280,3 +257,4 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 };
 
 export default HandTrackingView;
+
