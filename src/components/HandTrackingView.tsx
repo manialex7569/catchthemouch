@@ -36,6 +36,7 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
   const onHandDataRef = useRef<typeof onHandData | undefined>(onHandData);
   const lastPinchAtRef = useRef<number>(0);
   const pinchActiveRef = useRef<boolean>(false);
+  const framesProcessedRef = useRef<number>(0);
 
   useEffect(() => {
     onEnterRef.current = onEnter;
@@ -145,6 +146,12 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
         };
 
         hands.onResults((results: any) => {
+          // Mark a processed frame and hide loader on first frame
+          framesProcessedRef.current++;
+          if (framesProcessedRef.current === 1 && loading) {
+            setLoading(false);
+            onEnterRef.current?.();
+          }
           // Resize canvas to video size
           const w = video.videoWidth || 640;
           const h = video.videoHeight || 480;
@@ -233,12 +240,8 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
           height: 360,
         });
         cameraControllerRef.current = camera;
+        framesProcessedRef.current = 0;
         await camera.start();
-
-        if (!isCancelled) {
-          setLoading(false);
-          onEnterRef.current?.();
-        }
       } catch (err: any) {
         console.error("HandTrackingView error:", err);
         if (!isCancelled) {
@@ -254,9 +257,23 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
       } catch {}
       cameraControllerRef.current = null;
 
+      // Stop and reset video element and canvas for clean re-entry
+      const v = videoRef.current;
+      if (v) {
+        try { v.pause(); } catch {}
+        try { (v as any).srcObject = null; } catch {}
+      }
+      const c = canvasRef.current;
+      if (c) {
+        const ctx = c.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, c.width, c.height);
+      }
+
       handsRef.current?.close?.();
       handsRef.current = null;
 
+      framesProcessedRef.current = 0;
+      pinchActiveRef.current = false;
       onExitRef.current?.();
     };
 
@@ -300,7 +317,5 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 };
 
 export default HandTrackingView;
-
-
 
 
