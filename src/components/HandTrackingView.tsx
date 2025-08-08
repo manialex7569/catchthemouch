@@ -36,7 +36,6 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
   const onHandDataRef = useRef<typeof onHandData | undefined>(onHandData);
   const lastPinchAtRef = useRef<number>(0);
   const pinchActiveRef = useRef<boolean>(false);
-  const framesProcessedRef = useRef<number>(0);
 
   useEffect(() => {
     onEnterRef.current = onEnter;
@@ -67,52 +66,11 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
       setLoading(true);
 
       try {
-        const [handsModule, drawingModule, cameraModule] = await Promise.all([
+        const [{ Hands, HAND_CONNECTIONS }, drawingUtils, cameraUtils] = await Promise.all([
           import("@mediapipe/hands"),
           import("@mediapipe/drawing_utils"),
           import("@mediapipe/camera_utils"),
         ]);
-
-        // Resolve constructors from ESM or UMD
-        let HandsCtor: any = (handsModule as any).Hands || (handsModule as any).default?.Hands;
-        let HAND_CONNECTIONS: any = (handsModule as any).HAND_CONNECTIONS || (handsModule as any).default?.HAND_CONNECTIONS;
-        let drawingUtils: any = {
-          drawConnectors: (drawingModule as any).drawConnectors || (drawingModule as any).default?.drawConnectors,
-          drawLandmarks: (drawingModule as any).drawLandmarks || (drawingModule as any).default?.drawLandmarks,
-        };
-        let CameraCtor: any = (cameraModule as any).Camera || (cameraModule as any).default?.Camera;
-
-        // Fallback loader using CDN UMD globals if constructors are missing in production bundling
-        const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
-          const existing = document.querySelector(`script[data-mediapipe=\"${src}\"]`) as HTMLScriptElement | null;
-          if (existing) { existing.addEventListener('load', () => resolve()); return; }
-          const s = document.createElement('script');
-          s.src = src;
-          s.async = true;
-          s.setAttribute('data-mediapipe', src);
-          s.onload = () => resolve();
-          s.onerror = () => reject(new Error(`Failed to load ${src}`));
-          document.head.appendChild(s);
-        });
-
-        if (typeof HandsCtor !== 'function' || typeof CameraCtor !== 'function' || typeof drawingUtils.drawConnectors !== 'function') {
-          await Promise.all([
-            loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js'),
-            loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js'),
-            loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js'),
-          ]);
-          HandsCtor = (window as any).Hands || HandsCtor;
-          HAND_CONNECTIONS = (window as any).HAND_CONNECTIONS || HAND_CONNECTIONS;
-          drawingUtils = {
-            drawConnectors: (window as any).drawConnectors || drawingUtils.drawConnectors,
-            drawLandmarks: (window as any).drawLandmarks || drawingUtils.drawLandmarks,
-          };
-          CameraCtor = (window as any).Camera || CameraCtor;
-        }
-
-        if (typeof HandsCtor !== 'function' || typeof CameraCtor !== 'function' || typeof drawingUtils.drawConnectors !== 'function') {
-          throw new Error('MediaPipe initialization failed: constructors not available.');
-        }
 
         if (isCancelled) return;
 
@@ -121,7 +79,7 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
         const ctx = canvas.getContext("2d")!;
 
         // Initialize Hands
-        const hands = new HandsCtor({
+        const hands = new Hands({
           locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
         });
         hands.setOptions({
@@ -146,12 +104,6 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
         };
 
         hands.onResults((results: any) => {
-          // Mark a processed frame and hide loader on first frame
-          framesProcessedRef.current++;
-          if (framesProcessedRef.current === 1 && loading) {
-            setLoading(false);
-            onEnterRef.current?.();
-          }
           // Resize canvas to video size
           const w = video.videoWidth || 640;
           const h = video.videoHeight || 480;
@@ -231,7 +183,7 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
         });
 
         // Camera utility to feed frames to Hands
-        const camera = new CameraCtor(video, {
+        const camera = new cameraUtils.Camera(video, {
           onFrame: async () => {
             if (!handsRef.current) return;
             await handsRef.current.send({ image: video });
@@ -240,8 +192,12 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
           height: 360,
         });
         cameraControllerRef.current = camera;
-        framesProcessedRef.current = 0;
         await camera.start();
+
+        if (!isCancelled) {
+          setLoading(false);
+          onEnterRef.current?.();
+        }
       } catch (err: any) {
         console.error("HandTrackingView error:", err);
         if (!isCancelled) {
@@ -257,23 +213,9 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
       } catch {}
       cameraControllerRef.current = null;
 
-      // Stop and reset video element and canvas for clean re-entry
-      const v = videoRef.current;
-      if (v) {
-        try { v.pause(); } catch {}
-        try { (v as any).srcObject = null; } catch {}
-      }
-      const c = canvasRef.current;
-      if (c) {
-        const ctx = c.getContext('2d');
-        if (ctx) ctx.clearRect(0, 0, c.width, c.height);
-      }
-
       handsRef.current?.close?.();
       handsRef.current = null;
 
-      framesProcessedRef.current = 0;
-      pinchActiveRef.current = false;
       onExitRef.current?.();
     };
 
@@ -317,5 +259,4 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 };
 
 export default HandTrackingView;
-
 
