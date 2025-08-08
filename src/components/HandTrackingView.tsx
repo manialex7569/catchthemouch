@@ -66,11 +66,12 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
       setLoading(true);
 
       try {
-        const [{ Hands, HAND_CONNECTIONS }, drawingUtils, cameraUtils] = await Promise.all([
+        const [handsModule, drawingModule] = await Promise.all([
           import("@mediapipe/hands"),
           import("@mediapipe/drawing_utils"),
-          import("@mediapipe/camera_utils"),
         ]);
+        const { Hands, HAND_CONNECTIONS } = handsModule as any;
+        const { drawConnectors, drawLandmarks } = drawingModule as any;
 
         if (isCancelled) return;
 
@@ -124,11 +125,11 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
             for (const landmarks of results.multiHandLandmarks) {
               const mirrored = landmarks.map((p: any) => ({ ...p, x: 1 - p.x }));
               const pinched = isPinching(landmarks);
-              drawingUtils.drawConnectors(ctx, mirrored, HAND_CONNECTIONS, {
+              drawConnectors(ctx, mirrored, HAND_CONNECTIONS, {
                 color: pinched ? "#f59e0b" : "#22c55e",
                 lineWidth: 3,
               });
-              drawingUtils.drawLandmarks(ctx, mirrored, {
+              drawLandmarks(ctx, mirrored, {
                 color: "#60a5fa",
                 lineWidth: 1,
                 radius: 3,
@@ -182,17 +183,36 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
           }
         });
 
-        // Camera utility to feed frames to Hands
-        const camera = new cameraUtils.Camera(video, {
-          onFrame: async () => {
-            if (!handsRef.current) return;
-            await handsRef.current.send({ image: video });
-          },
-          width: 480,
-          height: 360,
+        // Start webcam using getUserMedia and drive Hands with rAF
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: 480, height: 360 },
+          audio: false,
         });
-        cameraControllerRef.current = camera;
-        await camera.start();
+        video.srcObject = stream as any;
+        await new Promise<void>((resolve) => {
+          const onLoaded = () => {
+            video.play().then(() => resolve()).catch(() => resolve());
+          };
+          if (video.readyState >= 2) resolve();
+          else video.onloadedmetadata = onLoaded;
+        });
+
+        let rafId: number | null = null;
+        const pump = async () => {
+          if (!handsRef.current) return;
+          await handsRef.current.send({ image: video });
+          rafId = requestAnimationFrame(pump);
+        };
+        rafId = requestAnimationFrame(pump);
+
+        cameraControllerRef.current = {
+          stop: () => {
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            const mediaStream = video.srcObject as MediaStream | null;
+            if (mediaStream) mediaStream.getTracks().forEach((t) => t.stop());
+            video.srcObject = null;
+          },
+        };
 
         if (!isCancelled) {
           setLoading(false);
@@ -259,4 +279,3 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 };
 
 export default HandTrackingView;
-
