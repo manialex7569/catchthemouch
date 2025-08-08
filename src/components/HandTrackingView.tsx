@@ -72,16 +72,45 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
           import("@mediapipe/camera_utils"),
         ]);
 
-        const HandsCtor: any = (handsModule as any).Hands || (handsModule as any).default?.Hands;
-        const HAND_CONNECTIONS: any = (handsModule as any).HAND_CONNECTIONS || (handsModule as any).default?.HAND_CONNECTIONS;
-        const drawingUtils: any = {
+        // Resolve constructors from ESM or UMD
+        let HandsCtor: any = (handsModule as any).Hands || (handsModule as any).default?.Hands;
+        let HAND_CONNECTIONS: any = (handsModule as any).HAND_CONNECTIONS || (handsModule as any).default?.HAND_CONNECTIONS;
+        let drawingUtils: any = {
           drawConnectors: (drawingModule as any).drawConnectors || (drawingModule as any).default?.drawConnectors,
           drawLandmarks: (drawingModule as any).drawLandmarks || (drawingModule as any).default?.drawLandmarks,
         };
-        const CameraCtor: any = (cameraModule as any).Camera || (cameraModule as any).default?.Camera;
+        let CameraCtor: any = (cameraModule as any).Camera || (cameraModule as any).default?.Camera;
 
-        if (typeof HandsCtor !== 'function' || typeof CameraCtor !== 'function') {
-          throw new Error('Failed to load MediaPipe constructors (Hands/Camera).');
+        // Fallback loader using CDN UMD globals if constructors are missing in production bundling
+        const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
+          const existing = document.querySelector(`script[data-mediapipe=\"${src}\"]`) as HTMLScriptElement | null;
+          if (existing) { existing.addEventListener('load', () => resolve()); return; }
+          const s = document.createElement('script');
+          s.src = src;
+          s.async = true;
+          s.setAttribute('data-mediapipe', src);
+          s.onload = () => resolve();
+          s.onerror = () => reject(new Error(`Failed to load ${src}`));
+          document.head.appendChild(s);
+        });
+
+        if (typeof HandsCtor !== 'function' || typeof CameraCtor !== 'function' || typeof drawingUtils.drawConnectors !== 'function') {
+          await Promise.all([
+            loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js'),
+            loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js'),
+            loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js'),
+          ]);
+          HandsCtor = (window as any).Hands || HandsCtor;
+          HAND_CONNECTIONS = (window as any).HAND_CONNECTIONS || HAND_CONNECTIONS;
+          drawingUtils = {
+            drawConnectors: (window as any).drawConnectors || drawingUtils.drawConnectors,
+            drawLandmarks: (window as any).drawLandmarks || drawingUtils.drawLandmarks,
+          };
+          CameraCtor = (window as any).Camera || CameraCtor;
+        }
+
+        if (typeof HandsCtor !== 'function' || typeof CameraCtor !== 'function' || typeof drawingUtils.drawConnectors !== 'function') {
+          throw new Error('MediaPipe initialization failed: constructors not available.');
         }
 
         if (isCancelled) return;
@@ -271,5 +300,7 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 };
 
 export default HandTrackingView;
+
+
 
 
