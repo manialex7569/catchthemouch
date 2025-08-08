@@ -67,11 +67,9 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 
       try {
         // Use CDN ESM builds to avoid bundler/minifier issues in production
-        const HANDS_VER = "0.4.1675469240";
-        const DRAW_VER = "0.3.1675466124";
         const [handsModule, drawingModule] = await Promise.all([
-          import(`https://cdn.jsdelivr.net/npm/@mediapipe/hands@${HANDS_VER}/hands.js`),
-          import(`https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@${DRAW_VER}/drawing_utils.js`),
+          import("@mediapipe/hands"),
+          import("@mediapipe/drawing_utils"),
         ]);
         const { Hands, HAND_CONNECTIONS } = handsModule as any;
         const { drawConnectors, drawLandmarks } = drawingModule as any;
@@ -84,7 +82,7 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 
         // Initialize Hands
         const hands = new Hands({
-          locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@${HANDS_VER}/${file}`,
+          locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
         });
         hands.setOptions({
           maxNumHands: 1,
@@ -282,4 +280,3 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 };
 
 export default HandTrackingView;
-
