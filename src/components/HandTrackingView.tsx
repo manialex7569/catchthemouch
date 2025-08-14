@@ -204,7 +204,7 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
   if (!enabled) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-30 w-64 rounded-lg overflow-hidden shadow-lg border border-white/20 bg-black/50 backdrop-blur-sm">
+    <div className="fixed bottom-4 right-4 z-30 w-72 rounded-lg overflow-hidden shadow-lg border border-white/20 bg-black/50 backdrop-blur-sm">
       <div className="relative w-full" style={{ aspectRatio: "4 / 3" }}>
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
         <video
@@ -231,4 +231,5 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 };
 
 export default HandTrackingView;
+
 
