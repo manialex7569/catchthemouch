@@ -125,7 +125,7 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
                 pinchActiveRef.current = pinched;
                 if (pinched) {
                   const now = performance.now();
-                  if (now - lastPinchAtRef.current > 200) { // Reduced from 300ms for better responsiveness
+                  if (now - lastPinchAtRef.current > 120) { // Reduced from 300ms for better responsiveness
                     lastPinchAtRef.current = now;
                     onPinchRef.current?.();
                   }
@@ -231,5 +231,6 @@ const HandTrackingView = ({ enabled, onEnter, onExit, onFingerMove, onPinch, onH
 };
 
 export default HandTrackingView;
+
 
 
